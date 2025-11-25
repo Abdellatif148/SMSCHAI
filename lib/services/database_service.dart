@@ -252,4 +252,44 @@ class DatabaseService {
     );
     return Sqflite.firstIntValue(result) ?? 0;
   }
+
+  // Delete a conversation and optionally its messages
+  Future<void> deleteConversation(
+    int threadId, {
+    bool deleteMessages = false,
+  }) async {
+    final db = await database;
+
+    await db.transaction((txn) async {
+      // Delete the conversation entry
+      await txn.delete(
+        'conversations',
+        where: 'thread_id = ?',
+        whereArgs: [threadId],
+      );
+
+      // Optionally delete all associated messages
+      if (deleteMessages) {
+        await txn.delete(
+          'messages',
+          where: 'thread_id = ?',
+          whereArgs: [threadId],
+        );
+      }
+    });
+  }
+
+  // Clear all data from the database
+  Future<void> clearAllData() async {
+    final db = await database;
+
+    await db.transaction((txn) async {
+      // Delete all messages
+      await txn.delete('messages');
+      // Delete all conversations
+      await txn.delete('conversations');
+      // Delete all contacts
+      await txn.delete('contacts');
+    });
+  }
 }

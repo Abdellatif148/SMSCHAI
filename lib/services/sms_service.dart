@@ -1,4 +1,4 @@
-import 'package:telephony/telephony.dart';
+import 'package:another_telephony/telephony.dart';
 import 'database_service.dart';
 import 'supabase_service.dart';
 import 'notification_service.dart';
@@ -52,13 +52,13 @@ class SmsService {
       messagesToInsert.add(messageMap);
 
       // Update conversation snippet
-      await _dbService.updateConversation({
-        'thread_id': msg.threadId,
-        'address': msg.address,
-        'snippet': msg.body,
-        'date': msg.date,
-        'unread_count': 0,
-      });
+      await _dbService.updateConversation(
+        threadId: msg.threadId ?? 0,
+        address: msg.address ?? '',
+        snippet: msg.body ?? '',
+        date: msg.date ?? 0,
+        resetUnread: true,
+      );
     }
 
     // Batch insert all messages at once
@@ -107,6 +107,34 @@ class SmsService {
     );
   }
 
+  // Send MMS with attachment
+  // Note: sendSmsByDefaultApp opens the default messaging app
+  // The user will need to manually send from the default app
+  Future<void> sendMms(String address, String filePath, String body) async {
+    await _telephony.sendSmsByDefaultApp(to: address, message: body);
+
+    // Save to local DB (optimistic insert)
+    final messageMap = {
+      'address': address,
+      'body': body.isEmpty ? 'Sent an attachment' : body,
+      'date': DateTime.now().millisecondsSinceEpoch,
+      'date_sent': DateTime.now().millisecondsSinceEpoch,
+      'read': 1,
+      'type': 2, // Sent
+      'thread_id': null,
+      'is_synced': 0,
+      'attachment_url': filePath,
+      'attachment_type': 'image', // Default to image
+    };
+
+    await _dbService.insertMessage(messageMap);
+
+    // Sync to Cloud if logged in
+    if (_supabaseService.currentUser != null) {
+      _supabaseService.uploadMessage(messageMap);
+    }
+  }
+
   // Listen for incoming SMS
   void listenToIncomingSms() {
     _telephony.listenIncomingSms(
@@ -131,13 +159,13 @@ class SmsService {
         await _dbService.insertMessage(messageMap);
 
         // Update conversation
-        await _dbService.updateConversation({
-          'thread_id': message.threadId,
-          'address': message.address,
-          'snippet': message.body,
-          'date': message.date,
-          'unread_count': 1,
-        });
+        await _dbService.updateConversation(
+          threadId: message.threadId ?? 0,
+          address: message.address ?? '',
+          snippet: message.body ?? '',
+          date: message.date ?? 0,
+          incrementUnread: true,
+        );
 
         // Show Notification
         _notificationService.showNotification(

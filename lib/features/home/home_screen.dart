@@ -31,6 +31,15 @@ class _HomeScreenState extends State<HomeScreen> {
     await context.read<ConversationProvider>().refresh();
   }
 
+  void _showSearchDialog() {
+    showDialog(
+      context: context,
+      builder: (context) => _SearchDialog(
+        conversations: context.read<ConversationProvider>().conversations,
+      ),
+    );
+  }
+
   void _onItemTapped(int index) {
     setState(() {
       _selectedIndex = index;
@@ -64,9 +73,7 @@ class _HomeScreenState extends State<HomeScreen> {
         actions: [
           IconButton(
             icon: const Icon(Icons.search, color: AppTheme.textPrimary),
-            onPressed: () {
-              // TODO: Implement search
-            },
+            onPressed: _showSearchDialog,
           ),
         ],
       ),
@@ -201,6 +208,179 @@ class _HomeScreenState extends State<HomeScreen> {
             label: 'Settings',
           ),
         ],
+      ),
+    );
+  }
+}
+
+// Search Dialog Widget
+class _SearchDialog extends StatefulWidget {
+  final List<Map<String, dynamic>> conversations;
+
+  const _SearchDialog({required this.conversations});
+
+  @override
+  State<_SearchDialog> createState() => _SearchDialogState();
+}
+
+class _SearchDialogState extends State<_SearchDialog> {
+  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> _filteredConversations = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _filteredConversations = widget.conversations;
+  }
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  void _filterConversations(String query) {
+    setState(() {
+      if (query.isEmpty) {
+        _filteredConversations = widget.conversations;
+      } else {
+        _filteredConversations = widget.conversations.where((conversation) {
+          final address = (conversation['address'] ?? '')
+              .toString()
+              .toLowerCase();
+          final snippet = (conversation['snippet'] ?? '')
+              .toString()
+              .toLowerCase();
+          final searchLower = query.toLowerCase();
+          return address.contains(searchLower) || snippet.contains(searchLower);
+        }).toList();
+      }
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog(
+      backgroundColor: AppTheme.primaryBackground,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+      child: Padding(
+        padding: const EdgeInsets.all(16.0),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // Search Header
+            Row(
+              children: [
+                const Icon(Icons.search, color: AppTheme.textSecondary),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: TextField(
+                    controller: _searchController,
+                    autofocus: true,
+                    style: const TextStyle(color: AppTheme.textPrimary),
+                    decoration: const InputDecoration(
+                      hintText: 'Search conversations...',
+                      hintStyle: TextStyle(color: AppTheme.textSecondary),
+                      border: InputBorder.none,
+                    ),
+                    onChanged: _filterConversations,
+                  ),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.close, color: AppTheme.textSecondary),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ],
+            ),
+            const Divider(color: AppTheme.secondaryBackground),
+            // Search Results
+            Flexible(
+              child: _filteredConversations.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.all(32.0),
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            Icons.search_off,
+                            size: 48,
+                            color: AppTheme.textSecondary,
+                          ),
+                          SizedBox(height: 16),
+                          Text(
+                            'No conversations found',
+                            style: TextStyle(color: AppTheme.textSecondary),
+                          ),
+                        ],
+                      ),
+                    )
+                  : ListView.separated(
+                      shrinkWrap: true,
+                      itemCount: _filteredConversations.length,
+                      separatorBuilder: (context, index) => const Divider(
+                        height: 1,
+                        color: AppTheme.secondaryBackground,
+                      ),
+                      itemBuilder: (context, index) {
+                        final chat = _filteredConversations[index];
+                        final date = DateTime.fromMillisecondsSinceEpoch(
+                          chat['date'] ?? 0,
+                        );
+                        final time =
+                            "${date.hour}:${date.minute.toString().padLeft(2, '0')}";
+
+                        return ListTile(
+                          leading: CircleAvatar(
+                            backgroundColor: AppTheme.accentColor.withValues(
+                              alpha: 0.2,
+                            ),
+                            child: Text(
+                              (chat['address'] ?? 'U')[0].toUpperCase(),
+                              style: const TextStyle(
+                                color: AppTheme.accentColor,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                          ),
+                          title: Text(
+                            chat['address'] ?? 'Unknown',
+                            style: const TextStyle(
+                              color: AppTheme.textPrimary,
+                              fontWeight: FontWeight.w600,
+                            ),
+                          ),
+                          subtitle: Text(
+                            chat['snippet'] ?? '',
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              color: AppTheme.textSecondary,
+                            ),
+                          ),
+                          trailing: Text(
+                            time,
+                            style: const TextStyle(
+                              color: AppTheme.textSecondary,
+                              fontSize: 12,
+                            ),
+                          ),
+                          onTap: () {
+                            Navigator.of(context).pop(); // Close search dialog
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (context) => ChatScreen(
+                                  userName: chat['address'] ?? 'Unknown',
+                                  threadId: chat['thread_id'],
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }

@@ -1,8 +1,13 @@
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 import '../../core/theme.dart';
 import '../../services/supabase_service.dart';
 import '../../services/sms_service.dart';
 import '../auth/login_screen.dart';
+import 'appearance_settings_screen.dart';
+import 'notification_settings_screen.dart';
+import 'privacy_settings_screen.dart';
+import 'about_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -12,19 +17,35 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  bool _isSyncEnabled = false; // TODO: Persist this preference
+  bool _isSyncEnabled = false;
   final SupabaseService _supabaseService = SupabaseService();
+  static const String _syncEnabledKey = 'sync_enabled';
 
   @override
   void initState() {
     super.initState();
-    _checkSyncStatus();
+    _loadSyncPreference();
   }
 
-  void _checkSyncStatus() {
+  Future<void> _loadSyncPreference() async {
+    final prefs = await SharedPreferences.getInstance();
+    final savedPreference = prefs.getBool(_syncEnabledKey) ?? false;
+    final isLoggedIn = _supabaseService.currentUser != null;
+
     setState(() {
-      _isSyncEnabled = _supabaseService.currentUser != null;
+      // Sync is enabled only if both the preference is saved AND user is logged in
+      _isSyncEnabled = savedPreference && isLoggedIn;
     });
+
+    // If preference says enabled but user is not logged in, update the preference
+    if (savedPreference && !isLoggedIn) {
+      await prefs.setBool(_syncEnabledKey, false);
+    }
+  }
+
+  Future<void> _saveSyncPreference(bool value) async {
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_syncEnabledKey, value);
   }
 
   Future<void> _toggleSync(bool value) async {
@@ -37,6 +58,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
         setState(() {
           _isSyncEnabled = true;
         });
+        await _saveSyncPreference(true);
         // Trigger restore and start sync
         await SmsService().restoreFromCloud();
         await SmsService().startSync();
@@ -55,6 +77,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
       setState(() {
         _isSyncEnabled = false;
       });
+      await _saveSyncPreference(false);
     }
   }
 
@@ -189,7 +212,28 @@ class _SettingsScreenState extends State<SettingsScreen> {
       title: Text(title, style: const TextStyle(color: AppTheme.textPrimary)),
       trailing: const Icon(Icons.chevron_right, color: AppTheme.textSecondary),
       onTap: () {
-        // TODO: Implement settings
+        // Navigate to the appropriate settings screen based on title
+        Widget? screen;
+        switch (title) {
+          case 'Appearance':
+            screen = const AppearanceSettingsScreen();
+            break;
+          case 'Notifications':
+            screen = const NotificationSettingsScreen();
+            break;
+          case 'Privacy':
+            screen = const PrivacySettingsScreen();
+            break;
+          case 'About & Help':
+            screen = const AboutScreen();
+            break;
+        }
+
+        if (screen != null) {
+          Navigator.of(
+            context,
+          ).push(MaterialPageRoute(builder: (context) => screen!));
+        }
       },
     );
   }

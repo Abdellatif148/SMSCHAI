@@ -1,5 +1,8 @@
+import 'dart:io';
+
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'encryption_service.dart';
+import 'database_service.dart';
 
 class SupabaseService {
   static final SupabaseService _instance = SupabaseService._internal();
@@ -8,6 +11,7 @@ class SupabaseService {
 
   final SupabaseClient _client = Supabase.instance.client;
   final EncryptionService _encryptionService = EncryptionService();
+  final DatabaseService _databaseService = DatabaseService();
 
   SupabaseClient get client => _client;
 
@@ -54,7 +58,11 @@ class SupabaseService {
         'read': message['read'] == 1,
         'type': message['type'] ?? 1,
       });
-      // TODO: Update local DB to mark as synced
+
+      // Mark message as synced in local database
+      if (message['id'] != null && message['id'] is int) {
+        await _databaseService.markAsSynced([message['id'] as int]);
+      }
     } catch (e) {
       // Silently fail or add to retry queue
       // Will be handled by sync queue service
@@ -66,18 +74,21 @@ class SupabaseService {
 
   void subscribeToNewMessages(void Function(Map<String, dynamic>) onMessage) {
     _messageChannel = _client.channel('public:messages_backup');
-    _messageChannel!.on(
-      RealtimeListenTypes.postgresChanges,
-      ChannelFilter(
-        event: 'INSERT',
-        schema: 'public',
-        table: 'messages_backup',
-        filter: 'user_id=eq.${currentUser?.id ?? ''}',
-      ),
-      (payload, [ref]) {
-        onMessage(payload['new']);
-      },
-    ).subscribe();
+    _messageChannel!
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'messages_backup',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'user_id',
+            value: currentUser?.id ?? '',
+          ),
+          callback: (payload) {
+            onMessage(payload.newRecord);
+          },
+        )
+        .subscribe();
   }
 
   void unsubscribeFromMessages() {
@@ -109,6 +120,37 @@ class SupabaseService {
     } catch (e) {
       // Return empty list on error
       return [];
+    }
+  }
+
+  // Upload file to Supabase Storage
+  Future<String> uploadFile(String filePath) async {
+    if (currentUser == null) {
+      throw Exception('User must be authenticated to upload files');
+    }
+
+    try {
+      final file = File(filePath);
+      if (!await file.exists()) {
+        throw Exception('File does not exist: $filePath');
+      }
+
+      // Generate unique filename
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final extension = filePath.split('.').last;
+      final fileName = '${currentUser!.id}_$timestamp.$extension';
+
+      // Upload to Supabase Storage
+      await _client.storage
+          .from('attachments')
+          .upload(fileName, file, fileOptions: const FileOptions(upsert: true));
+
+      // Get public URL
+      final url = _client.storage.from('attachments').getPublicUrl(fileName);
+
+      return url;
+    } catch (e) {
+      throw Exception('Failed to upload file: $e');
     }
   }
 }

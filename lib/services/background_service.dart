@@ -37,10 +37,7 @@ void callbackDispatcher() {
 
 class BackgroundService {
   static Future<void> init() async {
-    await Workmanager().initialize(
-      callbackDispatcher,
-      isInDebugMode: true, // Set to false in production
-    );
+    await Workmanager().initialize(callbackDispatcher);
   }
 
   static Future<void> registerPeriodicTask() async {

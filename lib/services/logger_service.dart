@@ -1,5 +1,6 @@
 import 'dart:developer' as developer;
 import 'package:flutter/foundation.dart';
+import 'package:sentry_flutter/sentry_flutter.dart';
 
 enum LogLevel { debug, info, warning, error }
 
@@ -52,10 +53,13 @@ class LoggerService {
       stackTrace: stackTrace,
     );
 
-    // In production, you could send errors to crash reporting service
+    // In production, send errors to Sentry for crash reporting
     if (!kDebugMode && level == LogLevel.error) {
-      // TODO: Send to Firebase Crashlytics or similar
-      // Crashlytics.instance.recordError(error, stackTrace);
+      Sentry.captureException(
+        error,
+        stackTrace: stackTrace,
+        hint: Hint.withMap({'message': message}),
+      );
     }
   }
 

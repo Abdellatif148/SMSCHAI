@@ -1,6 +1,7 @@
 import 'package:flutter/foundation.dart';
 import '../services/database_service.dart';
 import '../services/sms_service.dart';
+import '../services/supabase_service.dart';
 
 class MessageProvider extends ChangeNotifier {
   final DatabaseService _dbService = DatabaseService();
@@ -54,7 +55,11 @@ class MessageProvider extends ChangeNotifier {
   }
 
   // Send a new message
-  Future<void> sendMessage(String address, String body) async {
+  Future<void> sendMessage(
+    String address,
+    String body, {
+    String? attachmentPath,
+  }) async {
     try {
       // Optimistic update - add message immediately
       final tempMessage = {
@@ -64,19 +69,94 @@ class MessageProvider extends ChangeNotifier {
         'type': 2, // Sent
         'read': 1,
         'sending': true, // Temp flag
+        if (attachmentPath != null) 'attachment_url': attachmentPath,
+        if (attachmentPath != null)
+          'attachment_type': 'image/jpeg', // Default to image for now
       };
 
       _messages.insert(0, tempMessage);
       notifyListeners();
 
-      // Actually send SMS
-      await _smsService.sendSms(address, body);
+      if (attachmentPath != null) {
+        // Send MMS
+        try {
+          await _smsService.sendMms(address, attachmentPath, body);
+        } catch (e) {
+          // Fallback to cloud upload if MMS fails
+          // For now, just throw error to trigger catch block or handle it
+          throw Exception('Failed to send MMS: $e');
+        }
+      } else {
+        // Send SMS
+        await _smsService.sendSms(address, body);
+      }
 
       // Reload to get the actual message from DB
-      await Future.delayed(const Duration(milliseconds: 500));
+      await Future.delayed(
+        const Duration(milliseconds: 1000),
+      ); // Increased delay for MMS
       await loadMessages(address);
     } catch (e) {
       _error = e.toString();
+      notifyListeners();
+    }
+  }
+
+  // Send an attachment
+  Future<void> sendAttachment(String address, String filePath) async {
+    try {
+      _isLoading = true;
+      notifyListeners();
+
+      // 1. Optimistic Update: Add message with local path
+      final tempMessage = {
+        'address': address,
+        'body': 'Sent an attachment',
+        'date': DateTime.now().millisecondsSinceEpoch,
+        'type': 2, // Sent
+        'read': 1,
+        'sending': true,
+        'attachment_url': filePath, // Local path initially
+        'attachment_type': 'image', // Assume image for now
+      };
+
+      _messages.insert(0, tempMessage);
+      notifyListeners();
+
+      // 2. Try sending via MMS (Android Intent)
+      try {
+        await _smsService.sendMms(address, filePath, '');
+        // Note: We can't easily know if MMS succeeded as it hands off to another app.
+        // We assume success if no error was thrown during hand-off.
+
+        // Update local DB to persist the message
+        await _dbService.insertMessage({
+          ...tempMessage,
+          'sending': false, // Clear sending flag
+          'is_synced': 0,
+        });
+      } catch (mmsError) {
+        debugPrint(
+          'MMS failed or not supported, falling back to cloud link: $mmsError',
+        );
+
+        // 3. Fallback: Upload to Supabase and send link
+        final url = await SupabaseService().uploadFile(filePath);
+        final body = 'Sent an attachment: $url';
+
+        // Update the temp message in the list
+        _messages[0]['body'] = body;
+        _messages[0]['attachment_url'] = url; // Update to remote URL
+        notifyListeners();
+
+        // Send SMS with link
+        await sendMessage(address, body);
+      }
+    } catch (e) {
+      _error = 'Failed to send attachment: $e';
+      notifyListeners();
+    } finally {
+      _isLoading = false;
       notifyListeners();
     }
   }

@@ -2,11 +2,15 @@ import 'package:flutter/material.dart';
 import '../../../core/theme.dart';
 import '../../common/message_status_indicator.dart';
 
+import 'dart:io';
+
 class MessageBubble extends StatelessWidget {
   final String message;
   final String time;
   final bool isMe;
   final MessageStatus? status;
+  final String? attachmentUrl;
+  final String? attachmentType;
 
   const MessageBubble({
     super.key,
@@ -14,6 +18,8 @@ class MessageBubble extends StatelessWidget {
     required this.time,
     required this.isMe,
     this.status,
+    this.attachmentUrl,
+    this.attachmentType,
   });
 
   @override
@@ -45,10 +51,30 @@ class MessageBubble extends StatelessWidget {
           crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Text(
-              message,
-              style: const TextStyle(color: Colors.white, fontSize: 16),
-            ),
+            if (attachmentUrl != null)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8.0),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: Image.file(
+                    File(attachmentUrl!),
+                    height: 200,
+                    width: double.infinity,
+                    fit: BoxFit.cover,
+                    errorBuilder: (context, error, stackTrace) {
+                      return const Icon(
+                        Icons.broken_image,
+                        color: Colors.white,
+                      );
+                    },
+                  ),
+                ),
+              ),
+            if (message.isNotEmpty)
+              Text(
+                message,
+                style: const TextStyle(color: Colors.white, fontSize: 16),
+              ),
             const SizedBox(height: 4),
             Row(
               mainAxisSize: MainAxisSize.min,

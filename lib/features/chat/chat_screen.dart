@@ -56,6 +56,23 @@ class _ChatScreenState extends State<ChatScreen> {
     }
   }
 
+  void _handleAttachment(String filePath) {
+    // Send attachment via MMS
+    context.read<MessageProvider>().sendMessage(
+      widget.userName,
+      '', // Empty body for attachment-only message
+      attachmentPath: filePath,
+    );
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Sending attachment...'),
+        backgroundColor: AppTheme.accentColor,
+        duration: const Duration(seconds: 1),
+      ),
+    );
+  }
+
   Future<void> _onRefresh() async {
     await context.read<MessageProvider>().refresh(widget.userName);
   }
@@ -201,6 +218,8 @@ class _ChatScreenState extends State<ChatScreen> {
                           time: time,
                           isMe: isMe,
                           status: isMe ? message.messageStatus : null,
+                          attachmentUrl: message['attachment_url'],
+                          attachmentType: message['attachment_type'],
                         ),
                       );
                     },
@@ -209,7 +228,7 @@ class _ChatScreenState extends State<ChatScreen> {
               },
             ),
           ),
-          ChatInput(onSend: _handleSend),
+          ChatInput(onSend: _handleSend, onAttachment: _handleAttachment),
         ],
       ),
     );

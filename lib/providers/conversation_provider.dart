@@ -57,15 +57,41 @@ class ConversationProvider extends ChangeNotifier {
   void markAsRead(int threadId) {
     final index = _conversations.indexWhere((c) => c['thread_id'] == threadId);
     if (index != -1) {
+      final conversation = _conversations[index];
       _conversations[index]['unread_count'] = 0;
       notifyListeners();
+
+      // Persist to DB
+      _dbService.updateConversation(
+        threadId: threadId,
+        address: conversation['address'],
+        snippet: conversation['snippet'],
+        date: conversation['date'],
+        resetUnread: true,
+      );
     }
   }
 
-  // Delete a conversation
-  Future<void> deleteConversation(int threadId) async {
+  /// Delete a conversation and optionally its messages
+  /// [deleteMessages] - if true, also deletes all messages in the conversation
+  Future<void> deleteConversation(
+    int threadId, {
+    bool deleteMessages = false,
+  }) async {
+    // Remove from local list first for immediate UI update
     _conversations.removeWhere((c) => c['thread_id'] == threadId);
     notifyListeners();
-    // TODO: Delete from database
+
+    // Delete from database
+    try {
+      await _dbService.deleteConversation(
+        threadId,
+        deleteMessages: deleteMessages,
+      );
+    } catch (e) {
+      // If database deletion fails, reload to restore consistency
+      _error = 'Failed to delete conversation: ${e.toString()}';
+      await loadConversations();
+    }
   }
 }
