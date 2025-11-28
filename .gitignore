@@ -45,3 +45,17 @@ app.*.map.json
 /android/app/release
 
 sentry.properties
+
+# Executables (should not be committed)
+*.exe
+
+# Temporary analysis files
+analysis*.txt
+
+# Environment files (protect sensitive data)
+.env
+.env.local
+.env.*.local
+
+# Keep example files  
+!.env.example

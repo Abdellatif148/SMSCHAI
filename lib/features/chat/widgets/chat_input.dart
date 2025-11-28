@@ -1,21 +1,24 @@
 import 'package:flutter/material.dart';
-import 'package:file_picker/file_picker.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:record/record.dart';
 import 'dart:async';
+import 'dart:io';
 import '../../../core/theme.dart';
+import '../../../services/media_service.dart';
 
 class ChatInput extends StatefulWidget {
   final Function(String) onSend;
   final Function(String)? onAttachment; // Callback for when a file is selected
   final Function(String)? onVoiceMessage; // Callback for voice recordings
+  final Function(String)? onError; // Callback for errors
 
   const ChatInput({
     super.key,
     required this.onSend,
     this.onAttachment,
     this.onVoiceMessage,
+    this.onError,
   });
 
   @override
@@ -25,6 +28,7 @@ class ChatInput extends StatefulWidget {
 class _ChatInputState extends State<ChatInput> {
   final TextEditingController _controller = TextEditingController();
   final AudioRecorder _audioRecorder = AudioRecorder();
+  final MediaService _mediaService = MediaService();
   bool _isComposing = false;
   bool _isRecording = false;
   Timer? _recordingTimer;
@@ -58,16 +62,7 @@ class _ChatInputState extends State<ChatInput> {
                   label: 'Camera',
                   onTap: () async {
                     Navigator.pop(context);
-                    final result = await FilePicker.platform.pickFiles(
-                      type: FileType.image,
-                      allowMultiple: false,
-                    );
-                    if (result != null && result.files.isNotEmpty) {
-                      final filePath = result.files.first.path;
-                      if (filePath != null && widget.onAttachment != null) {
-                        widget.onAttachment!(filePath);
-                      }
-                    }
+                    await _handleCameraCapture();
                   },
                 ),
                 _AttachmentOption(
@@ -75,16 +70,15 @@ class _ChatInputState extends State<ChatInput> {
                   label: 'Gallery',
                   onTap: () async {
                     Navigator.pop(context);
-                    final result = await FilePicker.platform.pickFiles(
-                      type: FileType.image,
-                      allowMultiple: false,
-                    );
-                    if (result != null && result.files.isNotEmpty) {
-                      final filePath = result.files.first.path;
-                      if (filePath != null && widget.onAttachment != null) {
-                        widget.onAttachment!(filePath);
-                      }
-                    }
+                    await _handleGalleryPick();
+                  },
+                ),
+                _AttachmentOption(
+                  icon: Icons.videocam,
+                  label: 'Video',
+                  onTap: () async {
+                    Navigator.pop(context);
+                    await _handleVideoPick();
                   },
                 ),
                 _AttachmentOption(
@@ -92,16 +86,7 @@ class _ChatInputState extends State<ChatInput> {
                   label: 'Document',
                   onTap: () async {
                     Navigator.pop(context);
-                    final result = await FilePicker.platform.pickFiles(
-                      type: FileType.any,
-                      allowMultiple: false,
-                    );
-                    if (result != null && result.files.isNotEmpty) {
-                      final filePath = result.files.first.path;
-                      if (filePath != null && widget.onAttachment != null) {
-                        widget.onAttachment!(filePath);
-                      }
-                    }
+                    await _handleDocumentPick();
                   },
                 ),
               ],
@@ -110,6 +95,88 @@ class _ChatInputState extends State<ChatInput> {
         );
       },
     );
+  }
+
+  Future<void> _handleCameraCapture() async {
+    try {
+      final file = await _mediaService.captureFromCamera();
+      if (file == null) {
+        return;
+      }
+
+      await _processAndSendFile(file);
+    } catch (e) {
+      _showError('Failed to capture photo: $e');
+    }
+  }
+
+  Future<void> _handleGalleryPick() async {
+    try {
+      final file = await _mediaService.pickFromGallery();
+      if (file == null) {
+        return;
+      }
+
+      await _processAndSendFile(file);
+    } catch (e) {
+      _showError('Failed to pick photo: $e');
+    }
+  }
+
+  Future<void> _handleVideoPick() async {
+    try {
+      final file = await _mediaService.pickVideo();
+      if (file == null) {
+        return;
+      }
+
+      await _processAndSendFile(file);
+    } catch (e) {
+      _showError('Failed to pick video: $e');
+    }
+  }
+
+  Future<void> _handleDocumentPick() async {
+    try {
+      final file = await _mediaService.pickDocument();
+      if (file == null) {
+        return;
+      }
+
+      await _processAndSendFile(file);
+    } catch (e) {
+      _showError('Failed to pick document: $e');
+    }
+  }
+
+  Future<void> _processAndSendFile(File file) async {
+    final result = await _mediaService.processMediaFile(file);
+
+    if (result == null) {
+      _showError('Failed to process file');
+      return;
+    }
+
+    if (result.containsKey('error')) {
+      _showError(result['error']);
+      return;
+    }
+
+    final processedFile = result['file'] as File;
+    if (widget.onAttachment != null) {
+      widget.onAttachment!(processedFile.path);
+    }
+  }
+
+  void _showError(String message) {
+    if (widget.onError != null) {
+      widget.onError!(message);
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message), backgroundColor: Colors.red),
+      );
+    }
   }
 
   Future<void> _startRecording() async {

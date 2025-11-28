@@ -6,6 +6,7 @@ class ChatListItem extends StatelessWidget {
   final String message;
   final String time;
   final bool unread;
+  final bool isGroup;
   final VoidCallback onTap;
 
   const ChatListItem({
@@ -14,6 +15,7 @@ class ChatListItem extends StatelessWidget {
     required this.message,
     required this.time,
     this.unread = false,
+    this.isGroup = false,
     required this.onTap,
   });
 
@@ -25,24 +27,50 @@ class ChatListItem extends StatelessWidget {
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
         child: Row(
           children: [
-            // Avatar
-            Container(
-              width: 50,
-              height: 50,
-              decoration: BoxDecoration(
-                color: AppTheme.secondaryBackground,
-                shape: BoxShape.circle,
-              ),
-              child: Center(
-                child: Text(
-                  name.isNotEmpty ? name[0].toUpperCase() : '?',
-                  style: const TextStyle(
-                    color: AppTheme.textPrimary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
+            // Avatar with group badge
+            Stack(
+              children: [
+                Container(
+                  width: 50,
+                  height: 50,
+                  decoration: BoxDecoration(
+                    color: AppTheme.secondaryBackground,
+                    shape: BoxShape.circle,
+                  ),
+                  child: Center(
+                    child: Text(
+                      name.isNotEmpty ? name[0].toUpperCase() : '?',
+                      style: const TextStyle(
+                        color: AppTheme.textPrimary,
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                if (isGroup)
+                  Positioned(
+                    bottom: 0,
+                    right: 0,
+                    child: Container(
+                      width: 18,
+                      height: 18,
+                      decoration: BoxDecoration(
+                        color: AppTheme.accentColor,
+                        shape: BoxShape.circle,
+                        border: Border.all(
+                          color: AppTheme.primaryBackground,
+                          width: 2,
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.group,
+                        size: 10,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+              ],
             ),
             const SizedBox(width: 16),
             // Content

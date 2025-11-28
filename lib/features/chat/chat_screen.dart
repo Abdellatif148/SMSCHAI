@@ -1,17 +1,29 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:provider/provider.dart';
 import '../../core/theme.dart';
 import '../../providers/message_provider.dart';
+import '../../services/database_service.dart';
 import '../common/skeleton_loader.dart';
 import '../common/message_status_indicator.dart';
 import 'widgets/message_bubble.dart';
 import 'widgets/chat_input.dart';
+import 'widgets/message_action_menu.dart';
+import 'widgets/reaction_picker.dart';
 
 class ChatScreen extends StatefulWidget {
   final String userName;
   final int? threadId;
+  final bool isGroup;
+  final String? groupId;
 
-  const ChatScreen({super.key, required this.userName, this.threadId});
+  const ChatScreen({
+    super.key,
+    required this.userName,
+    this.threadId,
+    this.isGroup = false,
+    this.groupId,
+  });
 
   @override
   State<ChatScreen> createState() => _ChatScreenState();
@@ -24,7 +36,11 @@ class _ChatScreenState extends State<ChatScreen> {
   void initState() {
     super.initState();
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      context.read<MessageProvider>().loadMessages(widget.userName);
+      if (widget.isGroup && widget.groupId != null) {
+        context.read<MessageProvider>().loadGroupMessages(widget.groupId!);
+      } else {
+        context.read<MessageProvider>().loadMessages(widget.userName);
+      }
     });
     _scrollController.addListener(_onScroll);
   }
@@ -40,13 +56,21 @@ class _ChatScreenState extends State<ChatScreen> {
         _scrollController.position.maxScrollExtent) {
       final provider = context.read<MessageProvider>();
       if (!provider.isLoading) {
-        provider.loadMoreMessages(widget.userName, provider.messages.length);
+        if (widget.isGroup && widget.groupId != null) {
+          provider.loadMoreMessages(widget.groupId!, provider.messages.length);
+        } else {
+          provider.loadMoreMessages(widget.userName, provider.messages.length);
+        }
       }
     }
   }
 
   void _handleSend(String text) async {
-    await context.read<MessageProvider>().sendMessage(widget.userName, text);
+    await context.read<MessageProvider>().sendMessage(
+      widget.userName,
+      text,
+      groupId: widget.isGroup ? widget.groupId : null,
+    );
     if (_scrollController.hasClients) {
       _scrollController.animateTo(
         0,
@@ -62,19 +86,132 @@ class _ChatScreenState extends State<ChatScreen> {
       widget.userName,
       '', // Empty body for attachment-only message
       attachmentPath: filePath,
+      groupId: widget.isGroup ? widget.groupId : null,
     );
 
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
+      const SnackBar(
         content: Text('Sending attachment...'),
         backgroundColor: AppTheme.accentColor,
-        duration: const Duration(seconds: 1),
+        duration: Duration(seconds: 1),
+      ),
+    );
+  }
+
+  void _handleMessageLongPress(Map<String, dynamic> message) {
+    final provider = context.read<MessageProvider>();
+    final isMe = message['type'] == 2;
+    final isPinned = message['is_pinned'] == 1;
+    final messageId = message['id'] as int;
+
+    MessageActionMenu.show(
+      context,
+      isMe: isMe,
+      isPinned: isPinned,
+      onReply: () {
+        // TODO: Implement reply
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Reply feature coming soon')),
+        );
+      },
+      onCopy: () {
+        Clipboard.setData(ClipboardData(text: message['body'] ?? ''));
+        ScaffoldMessenger.of(
+          context,
+        ).showSnackBar(const SnackBar(content: Text('Copied to clipboard')));
+      },
+      onEdit: isMe
+          ? () {
+              _showEditDialog(message);
+            }
+          : null,
+      onDelete: isMe
+          ? () {
+              _showDeleteConfirmDialog(messageId);
+            }
+          : null,
+      onPin: () {
+        provider.togglePin(messageId, !isPinned);
+      },
+      onReact: () {
+        ReactionPicker.show(
+          context,
+          onReactionSelected: (emoji) {
+            provider.addReaction(messageId, emoji);
+          },
+        );
+      },
+      onInfo: () {
+        // TODO: Show info
+      },
+    );
+  }
+
+  void _showEditDialog(Map<String, dynamic> message) {
+    final controller = TextEditingController(text: message['body']);
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Edit Message'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: const InputDecoration(border: OutlineInputBorder()),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              if (controller.text.trim().isNotEmpty) {
+                context.read<MessageProvider>().editMessage(
+                  message['id'] as int,
+                  controller.text.trim(),
+                );
+                Navigator.pop(context);
+              }
+            },
+            child: const Text('Save'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _showDeleteConfirmDialog(int messageId) {
+    showDialog(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Delete Message'),
+        content: const Text(
+          'Are you sure you want to delete this message? This cannot be undone.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context),
+            child: const Text('Cancel'),
+          ),
+          TextButton(
+            onPressed: () {
+              context.read<MessageProvider>().deleteMessage(messageId);
+              Navigator.pop(context);
+            },
+            style: TextButton.styleFrom(foregroundColor: Colors.red),
+            child: const Text('Delete'),
+          ),
+        ],
       ),
     );
   }
 
   Future<void> _onRefresh() async {
-    await context.read<MessageProvider>().refresh(widget.userName);
+    if (widget.isGroup && widget.groupId != null) {
+      await context.read<MessageProvider>().loadGroupMessages(widget.groupId!);
+    } else {
+      await context.read<MessageProvider>().refresh(widget.userName);
+    }
   }
 
   @override
@@ -169,7 +306,9 @@ class _ChatScreenState extends State<ChatScreen> {
                         const SizedBox(height: 16),
                         ElevatedButton(
                           onPressed: () =>
-                              provider.loadMessages(widget.userName),
+                              widget.isGroup && widget.groupId != null
+                              ? provider.loadGroupMessages(widget.groupId!)
+                              : provider.loadMessages(widget.userName),
                           child: const Text('Retry'),
                         ),
                       ],
@@ -210,6 +349,21 @@ class _ChatScreenState extends State<ChatScreen> {
                           "${date.hour}:${date.minute.toString().padLeft(2, '0')}";
                       final isMe = message['type'] == 2;
                       final isSending = message['sending'] == true;
+                      final messageId = message['id'] as int;
+
+                      // Parse reactions
+                      Map<String, dynamic>? reactions;
+                      if (message['reactions'] != null) {
+                        if (message['reactions'] is String) {
+                          reactions = Map<String, dynamic>.from(
+                            DatabaseService().parseJson(message['reactions']),
+                          );
+                        } else if (message['reactions'] is Map) {
+                          reactions = Map<String, dynamic>.from(
+                            message['reactions'],
+                          );
+                        }
+                      }
 
                       return Opacity(
                         opacity: isSending ? 0.6 : 1.0,
@@ -220,6 +374,18 @@ class _ChatScreenState extends State<ChatScreen> {
                           status: isMe ? message.messageStatus : null,
                           attachmentUrl: message['attachment_url'],
                           attachmentType: message['attachment_type'],
+                          reactions: reactions,
+                          isPinned: message['is_pinned'] == 1,
+                          isEdited: message['edited_at'] != null,
+                          isDeleted: message['is_deleted'] == 1,
+                          onLongPress: () => _handleMessageLongPress(message),
+                          onReactionTap: (emoji) {
+                            // For now, just add reaction again (provider handles logic)
+                            context.read<MessageProvider>().addReaction(
+                              messageId,
+                              emoji,
+                            );
+                          },
                         ),
                       );
                     },

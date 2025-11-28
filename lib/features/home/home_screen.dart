@@ -146,12 +146,17 @@ class _HomeScreenState extends State<HomeScreen> {
                 final time =
                     "${date.hour}:${date.minute.toString().padLeft(2, '0')}";
 
+                final isGroup = chat['is_group'] == 1;
+                final groupId = chat['group_id'] as String?;
+
                 return OpenContainer(
                   transitionType: ContainerTransitionType.fadeThrough,
                   openBuilder: (BuildContext context, VoidCallback _) {
                     return ChatScreen(
                       userName: chat['address'] ?? 'Unknown',
-                      threadId: chat['thread_id'],
+                      threadId: isGroup ? null : chat['thread_id'],
+                      isGroup: isGroup,
+                      groupId: groupId,
                     );
                   },
                   closedElevation: 0,
@@ -163,8 +168,11 @@ class _HomeScreenState extends State<HomeScreen> {
                           message: chat['snippet'] ?? '',
                           time: time,
                           unread: (chat['unread_count'] ?? 0) > 0,
+                          isGroup: isGroup,
                           onTap: () {
-                            provider.markAsRead(chat['thread_id']);
+                            if (!isGroup && chat['thread_id'] != null) {
+                              provider.markAsRead(chat['thread_id']);
+                            }
                             openContainer();
                           },
                         );

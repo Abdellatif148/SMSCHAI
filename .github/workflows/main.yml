@@ -1,0 +1,113 @@
+name: Android CI/CD – Flutter + Supabase + Sentry
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+env:
+  SUPABASE_PROJECT_ID: oizpvbhqevegxjqimpne
+  SENTRY_ORG: choukri-group
+  SENTRY_PROJECT: flutter
+  # Secrets are accessed via ${{ secrets.VAR }}
+
+jobs:
+  setup_and_test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Verify Flutter Installation
+        run: |
+          flutter --version
+          flutter doctor -v
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Analyze
+        run: flutter analyze
+
+      - name: Run Tests
+        run: flutter test
+
+  build_and_release:
+    needs: setup_and_test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Setup Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.24.0'
+          channel: 'stable'
+          cache: true
+
+      - name: Verify Flutter Installation
+        run: |
+          flutter --version
+          flutter doctor -v
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Release APK (Obfuscated)
+        run: flutter build apk --release --obfuscate --split-debug-info=build/debug
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-apk
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+      - name: Install Sentry CLI
+        run: curl -sL https://sentry.io/get-cli/ | bash
+
+      - name: Upload Debug Symbols to Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+        run: |
+          sentry-cli debug-files upload build/debug --org $SENTRY_ORG --project $SENTRY_PROJECT --log-level=info
+
+  deploy_supabase:
+    needs: build_and_release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup Supabase CLI
+        uses: supabase/setup-cli@v1
+        with:
+          version: latest
+
+      - name: Deploy Edge Functions
+        env:
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+        run: supabase functions deploy --project-ref $SUPABASE_PROJECT_ID
+
+      # Uncomment the following lines if you have database migrations to apply
+      # - name: Deploy Database Migrations
+      #   env:
+      #     SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}
+      #   run: supabase db push --project-ref $SUPABASE_PROJECT_ID
